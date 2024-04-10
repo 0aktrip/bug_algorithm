@@ -20,8 +20,8 @@ class RobotController(Node):
         self.timer = self.create_timer(0.5, self.move_to_point)
 
         # Parametros de Control
-        self.k1 = 0.2
-        self.k2 = 0.5
+        self.k1 = 0.4
+        self.k2 = 0.8
         self.safe_distance = 0.2
         self.sensor_offset = 0
 
@@ -119,22 +119,27 @@ class RobotController(Node):
     def control(self):
         v = 0.0
         w = 0.0
+        obstacle_threshold = 2.0    # Define el umbral para considerar algo como un obstáculo
 
-        # Comprobar si el camino está libre hacia el objetivo
-        if self.min_dist_to_obstacle < self.safe_distance:
-            if self.angle_to_obstacle > 180:
-                # Gira a la izquierda
+        # Analiza los rangos del sensor para detectar obstáculos
+        obstacle_right = any(r < obstacle_threshold for r in self.ranges[90:135])
+        obstacle_center = any(r < obstacle_threshold for r in self.ranges[135:225])
+        obstacle_left = any(r < obstacle_threshold for r in self.ranges[225:270])
+
+        if obstacle_center:
+            if not obstacle_left and obstacle_right:
                 w = self.k2
-            else:
-                # gira a la derecha
+            elif obstacle_left and not obstacle_right:
                 w = -self.k2
+            else:
+                w = 0.0
+        
+            v = self.k1 * 0.5
 
-            # Reducir la velocidad lineal para evitar chocar mientras se decide la dirección
-            v = self.k1 * (self.safe_distance - self.min_dist_to_obstacle)
         else:
             v, w = self.ley_control()
-    
-        # Asegurar que las velocidades estén dentro de los límites aceptables
+
+        # Asegura que las velocidades estén dentro de los límites aceptables
         v = max(min(v, 1.0), -1.0)
         w = max(min(w, 1.0), -1.0)
 
