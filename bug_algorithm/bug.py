@@ -39,11 +39,15 @@ class RobotController(Node):
         self.start_path = False
         self.first_time = True
         self.prev_dot_product = 0
-        self.umbral = 1.0
+        self.umbral = 2.0
         self.colision_pose = Pose2D()
         self.obstacle = {'obstacle': False, 'orientation': None}
 
     def laserscan_callback(self, msg):
+        '''
+        TODO: HACER UN ANILLO DE SEGURIDAD
+              SENSAR OBSTACULOS DE FRENTE
+        '''
         obstacle_right = any(r < self.umbral for r in msg.ranges[90:179])
         obstacle_left = any(r < self.umbral for r in msg.ranges[180:270])
 
@@ -82,6 +86,7 @@ class RobotController(Node):
         if not self.start_path:
             self.stop_robot()
 
+            #??? -  no es necesario un hilo para pedir datos
             thread = threading.Thread(target=self.get_goal_input)
             thread.start()
             thread.join()
@@ -129,9 +134,19 @@ class RobotController(Node):
         v = 0.3
 
         error = self.calculate_obstacle_error()
-        w = max(min(error, 1.0), -1.0) if abs(error) > 0.5 else 0.1 * error
 
+        #w = max(min(error, 1.0), -1.0) if abs(error) > 0.5 else 0.1 * error
+
+        if error > 1:
+            error = 1.0
+            
+        if error < -1:
+            error = -1.0
+
+        w = error
+        
         self.mover(v,w)
+        
         self.check_vector_sign_change()
 
     def calculate_obstacle_error(self):
@@ -144,14 +159,20 @@ class RobotController(Node):
     def check_vector_sign_change(self):
         # Verificación del cambio de signo utilizando el producto punto
         vector_goal = (self.goal_pose.x - self.colision_pose.x, self.goal_pose.y - self.colision_pose.y)
+        vector_goal = (-vector_goal[1],vector_goal[0])
+        
         vector_position = (self.pose.x - self.colision_pose.x, self.pose.y - self.colision_pose.y)
+        
         dot_product = vector_goal[0] * vector_position[0] + vector_goal[1] * vector_position[1]
-
-        if dot_product > 0 and self.prev_dot_product < 0:
+        
+        if (dot_product >= 0 and self.prev_dot_product < 0):
             self.obstacle["obstacle"] = False
             self.first_time = True
             self.get_logger().info("Contour following completed")
-
+            
+        self.get_logger().info(f'DOT: ({dot_product})', throttle_duration_sec=1)
+        
+                    
         self.prev_dot_product = dot_product
 
     def ley_control(self):
@@ -164,19 +185,29 @@ class RobotController(Node):
         # Error alpha
         alpha = atan2(y_err,x_err) - self.theta
 
-        if(self.theta > math.pi):
-            self.theta = self.theta - 2 * math.pi
-        if(self.theta < -math.pi):
-            self.theta = self.theta + 2 * math.pi
+        if(alpha > math.pi):
+            alpha = alpha - 2 * math.pi
+        if(alpha < -math.pi):
+            alpha = alpha + 2 * math.pi
         
         # Ley de control para la velocidad lineal
         v = self.k1 * d * cos(alpha)
-        v = max(min(v, 1.0), -1.0)
-        
+
+        if v > 1:
+            v = 1.0
+
+        if v < -1:
+            v = -1.0
+            
         # Ley de control para la velocidad angular
         w = self.k2 * alpha + self.k1 * sin(alpha) * cos(alpha)
-        w = max(min(w, 1.0), -1.0)
 
+        if w > 1.0:
+            w = 1.0
+
+        if w < -1.0:
+            w = -1.0
+        
         self.get_logger().info(f'goal pose: ({self.goal_pose.x} , {self.goal_pose.y}) - robo pose: ({round(self.pose.x,2)},{round(self.pose.y,2)}) - theta: {round(self.theta,2)} - {round(self.theta*180/math.pi,2)}', throttle_duration_sec=1)
         
         self.mover(v, w)
